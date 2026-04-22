@@ -1058,20 +1058,40 @@ window.addEventListener('scroll', updateProgress, { passive: true });
 updateProgress();
 
 // ── RADIO / CHECKBOX TOGGLE ───────────────────────────────────
+// Fix: prevent double-firing by using change event on the actual input
+
 document.querySelectorAll('.radio-group').forEach(group => {
   group.querySelectorAll('.radio-opt').forEach(opt => {
-    opt.addEventListener('click', () => {
+    const input = opt.querySelector('input[type="radio"]');
+
+    opt.addEventListener('click', (e) => {
+      if(e.target === input) return; // avoid double-fire
+      e.preventDefault();
+      input.checked = true;
       group.querySelectorAll('.radio-opt').forEach(o => o.classList.remove('selected'));
       opt.classList.add('selected');
-      opt.querySelector('input').checked = true;
+    });
+
+    input.addEventListener('change', () => {
+      group.querySelectorAll('.radio-opt').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
     });
   });
 });
+
 document.querySelectorAll('.check-group').forEach(group => {
   group.querySelectorAll('.check-opt').forEach(opt => {
-    opt.addEventListener('click', () => {
-      opt.classList.toggle('selected');
-      opt.querySelector('input').checked = opt.classList.contains('selected');
+    const input = opt.querySelector('input[type="checkbox"]');
+
+    opt.addEventListener('click', (e) => {
+      if(e.target === input) return; // avoid double-fire
+      e.preventDefault();
+      input.checked = !input.checked;
+      opt.classList.toggle('selected', input.checked);
+    });
+
+    input.addEventListener('change', () => {
+      opt.classList.toggle('selected', input.checked);
     });
   });
 });
@@ -1121,37 +1141,150 @@ tagInput.addEventListener('keydown', e => {
 tagWrap.addEventListener('click', () => tagInput.focus());
 
 // ── FORM SUBMIT ───────────────────────────────────────────────
-document.getElementById('mainForm').addEventListener('submit', function(e) {
+document.getElementById('mainForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  const name = document.getElementById('q-name').value;
-  const email = document.getElementById('q-email').value;
 
-  // Collect all data
+  const name = document.getElementById('q-name').value.trim();
+  const email = document.getElementById('q-email').value.trim();
+
+  // Basic validation
+  if(!name || !email) {
+    alert('Please fill in your name and email before submitting.');
+    return;
+  }
+
+  // Show loading state on button
+  const btn = this.querySelector('.btn-submit');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<span style="opacity:0.7">Sending your intake...</span>';
+  btn.style.pointerEvents = 'none';
+  btn.style.opacity = '0.8';
+
+  // Collect all form data
   const formData = new FormData(this);
+
+  // Collect checked checkboxes and radios properly
   const data = {};
-  for(let [k,v] of formData.entries()) {
+  for(let [k, v] of formData.entries()) {
     if(data[k]) {
       data[k] = Array.isArray(data[k]) ? [...data[k], v] : [data[k], v];
     } else {
       data[k] = v;
     }
   }
-  console.log('Form data:', data);
-  // In production: POST to your webhook / Zapier / n8n endpoint here
-  // fetch('/webhook/intake', { method:'POST', body: JSON.stringify(data), headers:{'Content-Type':'application/json'} })
 
-  document.getElementById('formOuter').style.opacity = '0';
-  document.getElementById('formOuter').style.transform = 'translateY(-20px)';
-  document.getElementById('formOuter').style.transition = 'all 0.4s ease';
-  setTimeout(() => {
-    document.getElementById('formOuter').style.display = 'none';
-    const ss = document.getElementById('successScreen');
-    ss.classList.add('show');
-    document.getElementById('successName').textContent = name.split(' ')[0];
-    document.getElementById('successEmail').textContent = email;
-    fill.style.width = '100%';
-    label.textContent = 'Complete ✓';
-  }, 400);
+  // Add scale value
+  const formalityVal = document.getElementById('formalityVal').value;
+  if(formalityVal) data.formality = formalityVal;
+
+  // Add keywords tags
+  const keywordsVal = document.getElementById('keywordsVal').value;
+  if(keywordsVal) data.keywords = keywordsVal;
+
+  // Format a clean readable email body for Formspree
+  const emailBody = `
+NEW SOCIAL MEDIA INTAKE SUBMISSION
+===================================
+
+SECTION 1 — BUSINESS BASICS
+Name: ${data.name || '—'}
+Email: ${data.email || '—'}
+Brand: ${data.brand || '—'}
+Website: ${data.website || '—'}
+Industry: ${data.industry || '—'}
+One-liner: ${data.oneLiner || '—'}
+Location: ${data.location || '—'}
+
+SECTION 2 — IDEAL CLIENT
+Audience Type: ${Array.isArray(data.audience) ? data.audience.join(', ') : (data.audience || '—')}
+Audience Detail: ${data.audienceDetail || '—'}
+Awareness Level: ${data.awareness || '—'}
+Platforms: ${Array.isArray(data.platforms) ? data.platforms.join(', ') : (data.platforms || '—')}
+
+SECTION 3 — PAIN POINTS & VALUE
+Pain Points: ${data.painPoints || '—'}
+Results/Transformations: ${data.results || '—'}
+Objections: ${data.objections || '—'}
+Differentiator: ${data.differentiator || '—'}
+
+SECTION 4 — BRAND VOICE
+Tone: ${Array.isArray(data.tone) ? data.tone.join(', ') : (data.tone || '—')}
+Formality (1-10): ${data.formality || '—'}
+Brands They Admire: ${data.brandsLike || '—'}
+What to Avoid: ${data.toneAvoid || '—'}
+Off-Limits Topics: ${data.topicsOff || '—'}
+
+SECTION 5 — CONTENT GOALS
+Primary Goal: ${data.primaryGoal || '—'}
+Desired Actions: ${Array.isArray(data.desiredAction) ? data.desiredAction.join(', ') : (data.desiredAction || '—')}
+Main Offer: ${data.mainOffer || '—'}
+Post Frequency: ${data.postFreq || '—'} posts/week
+Content Formats: ${Array.isArray(data.formats) ? data.formats.join(', ') : (data.formats || '—')}
+
+SECTION 6 — BRAND ASSETS
+Brand Colours: ${data.brandColors || '—'}
+Brand Fonts: ${data.brandFonts || '—'}
+Visual Style: ${data.visualStyle || '—'}
+Visual Inspiration: ${data.visualInspo || '—'}
+Logo URL: ${data.logoUrl || '—'}
+
+SECTION 7 — CONTEXT
+Current Following: ${data.following || '—'}
+What Has Worked: ${data.whatWorked || '—'}
+What Has NOT Worked: ${data.whatNotWorked || '—'}
+Testimonials: ${data.testimonials || '—'}
+Keywords Audience Uses: ${data.keywords || '—'}
+Upcoming Campaign: ${data.upcomingCampaign || '—'}
+Anything Else: ${data.anythingElse || '—'}
+
+===================================
+Submitted: ${new Date().toLocaleString()}
+  `.trim();
+
+  try {
+    const response = await fetch('https://formspree.io/f/mdaypazg', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        _subject: `New Intake: ${data.brand || name} — AgencyOps Social Media Strategy`,
+        _replyto: email,
+        name: name,
+        email: email,
+        brand: data.brand || '—',
+        message: emailBody,
+        ...data
+      })
+    });
+
+    if(response.ok) {
+      // Success — show success screen
+      document.getElementById('formOuter').style.opacity = '0';
+      document.getElementById('formOuter').style.transform = 'translateY(-20px)';
+      document.getElementById('formOuter').style.transition = 'all 0.4s ease';
+      setTimeout(() => {
+        document.getElementById('formOuter').style.display = 'none';
+        const ss = document.getElementById('successScreen');
+        ss.classList.add('show');
+        document.getElementById('successName').textContent = name.split(' ')[0];
+        document.getElementById('successEmail').textContent = email;
+        fill.style.width = '100%';
+        label.textContent = 'Complete ✓';
+      }, 400);
+    } else {
+      throw new Error('Submission failed');
+    }
+
+  } catch(err) {
+    // Error — restore button and show message
+    btn.innerHTML = originalText;
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+    alert('Something went wrong submitting the form. Please check your internet connection and try again, or email us directly at hello@agencyops.com');
+    console.error('Formspree error:', err);
+  }
 });
 </script>
 </body>
